@@ -373,14 +373,27 @@
                     <p>Client Websites, Gateway Routing & Live Keys</p>
                 </div>
             </div>
-            <a href="{{ route('admin.websites.create') }}" class="btn-add">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                    stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M5 12h14" />
-                    <path d="M12 5v14" />
-                </svg>
-                + Register New Website
-            </a>
+            <div style="display:flex; align-items:center; gap:12px;">
+                <a href="{{ route('admin.transactions.index') }}" class="action-glass"
+                    style="padding:11px 18px; font-weight:700;">
+                    View Transactions
+                </a>
+                <a href="{{ route('admin.websites.create') }}" class="btn-add">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M5 12h14" />
+                        <path d="M12 5v14" />
+                    </svg>
+                     Register New Website
+                </a>
+                <form method="POST" action="{{ route('admin.logout') }}" style="margin: 0;">
+                    @csrf
+                    <button type="submit" class="action-glass"
+                        style="cursor:pointer; background:rgba(239, 68, 68, 0.1); border-color:rgba(239, 68, 68, 0.25); color:#f87171;">
+                        Log out
+                    </button>
+                </form>
+            </div>
         </div>
 
         <!-- Metrics Row -->

@@ -9,31 +9,53 @@ use App\Services\Gateways\StripeService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use NepalPay\Gateway\Facades\NepalPayment;
+use App\Services\WebhookService;
+use App\Services\Gateways\EsewaService;
+use App\Services\Gateways\KhaltiService;
 
 class CheckoutController extends Controller
 {
     /**
      * Called by The Soaltee Kathmandu's SDK to initiate checkout session.
      */
-    public function createSession(Request $request)
+   public function createSession(Request $request)
     {
-        $request->validate([
+        $corsHeaders = [
+            'Access-Control-Allow-Origin' => '*',
+            'Access-Control-Allow-Methods' => 'POST, GET, OPTIONS',
+            'Access-Control-Allow-Headers' => 'Content-Type, Authorization, Accept, X-Requested-With, ngrok-skip-browser-warning',
+        ];
+
+        if ($request->isMethod('OPTIONS')) {
+            return response('', 200, $corsHeaders);
+        }
+
+        // 2. Validate with custom error return
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'key' => 'required|string',
             'amount' => 'required|numeric|min:0.5',
             'currency' => 'nullable|string|max:10',
             'order_id' => 'nullable|string',
             'customer_name' => 'nullable|string',
-            'customer_email' => 'nullable|email',
-            'return_url' => 'required|url',
-            'cancel_url' => 'required|url',
+            'customer_email' => 'nullable',
+            'return_url' => 'required',
+            'cancel_url' => 'required',
         ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Validation error: ' . implode(', ', $validator->errors()->all())
+            ], 422)->header('Access-Control-Allow-Origin', '*');
+        }
 
         $website = Website::where('public_key', $request->key)
             ->where('is_active', true)
             ->first();
 
         if (!$website) {
-            return response()->json(['error' => 'Invalid or inactive merchant public key.'], 401);
+            return response()->json([
+                'error' => 'Invalid or inactive merchant key [' . $request->key . ']. Check admin dashboard.'
+            ], 401)->header('Access-Control-Allow-Origin', '*');
         }
 
         $sessionToken = 'cs_' . Str::random(40);
@@ -56,7 +78,7 @@ class CheckoutController extends Controller
         return response()->json([
             'checkout_url' => route('checkout.show', $sessionToken),
             'session_token' => $sessionToken,
-        ]);
+        ])->header('Access-Control-Allow-Origin', '*');
     }
 
     /**
@@ -114,6 +136,17 @@ class CheckoutController extends Controller
                 $redirectUrl = $stripe->createCheckoutSession($transaction);
                 return redirect()->away($redirectUrl);
             }
+            if ($gateway === 'esewa') {
+                $esewa = new EsewaService($setting);
+                $formData = $esewa->getFormData($transaction);
+                return view('checkout.esewa-redirect', $formData);
+            }
+
+            if ($gateway === 'khalti') {
+                $khalti = new KhaltiService($setting);
+                $redirectUrl = $khalti->initiate($transaction);
+                return redirect()->away($redirectUrl);
+            }
 
             // Delegate eSewa and Khalti directly to laravel-gateway package drivers
             if (in_array($gateway, ['esewa', 'khalti'])) {
@@ -141,10 +174,7 @@ class CheckoutController extends Controller
         }
     }
     /**
-     * Handle return from PayPal / Stripe after customer pays or cancels.
-     */
-    /**
-     * Handle return from PayPal, Stripe, eSewa, or Khalti after customer pays or cancels.
+     * Handle return from PayPal / Stripe / eSewa / Khalti after customer pays or cancels.
      */
     public function callback(Request $request, string $gateway, string $action, string $token)
     {
@@ -152,61 +182,86 @@ class CheckoutController extends Controller
             ->where('session_token', $token)
             ->firstOrFail();
 
+        // 1. If customer clicked Cancel on the gateway page
         if ($action === 'cancel') {
-            $transaction->update([
-                'status' => 'cancelled',
-                'gateway_response' => ['event' => 'user_cancelled', 'query' => $request->query()],
-            ]);
-            return redirect()->away($transaction->cancel_url . (str_contains($transaction->cancel_url, '?') ? '&' : '?') . 'status=cancelled&order_id=' . $transaction->order_id);
+            $transaction->update(['status' => 'cancelled']);
+            $redirectTarget = $transaction->cancel_url;
+            $delim = str_contains($redirectTarget, '?') ? '&' : '?';
+            return redirect()->away("{$redirectTarget}{$delim}status=cancelled&order_id={$transaction->order_id}");
         }
 
         $setting = $transaction->website->getSettingFor($gateway);
         $isSuccess = false;
-        $gatewayResponse = [];
+        $rawResponse = null;
 
         try {
+            // 2. Verify PayPal
             if ($gateway === 'paypal') {
                 $orderId = $request->query('token'); // PayPal passes order ID as ?token=
                 if ($orderId) {
                     $paypal = new PayPalService($setting);
-                    $result = $paypal->captureOrder($orderId);
-                    $isSuccess = (bool) ($result['success'] ?? false);
-                    $gatewayResponse = $result['raw'] ?? [];
+                    $res = $paypal->captureOrder($orderId);
+                    $isSuccess = (bool) ($res['success'] ?? false);
+                    $rawResponse = $res['raw'] ?? [];
                 }
-            } elseif ($gateway === 'stripe') {
+            }
+            // 3. Verify Stripe
+            elseif ($gateway === 'stripe') {
                 $sessionId = $request->query('session_id');
                 if ($sessionId) {
                     $stripe = new StripeService($setting);
-                    $result = $stripe->verifySession($sessionId);
-                    $isSuccess = (bool) ($result['success'] ?? false);
-                    $gatewayResponse = $result['raw'] ?? [];
+                    $res = $stripe->verifySession($sessionId);
+                    $isSuccess = (bool) ($res['success'] ?? false);
+                    $rawResponse = $res['raw'] ?? [];
                 }
-            } elseif (in_array($gateway, ['esewa', 'khalti'])) {
-                // Uses the driver already inside your laravel-gateway package
-                $driver = \NepalPay\Gateway\Facades\NepalPayment::driver($gateway);
-                $result = $driver->handleReturn($request);
-                $isSuccess = (bool) $result->success;
-                $gatewayResponse = $result->raw;
+            }
+            // 4. Verify eSewa
+            elseif ($gateway === 'esewa') {
+                $esewa = new EsewaService($setting);
+                $res = $esewa->verify($transaction);
+                $isSuccess = (bool) ($res['success'] ?? false);
+                $rawResponse = $res['raw'] ?? [];
+            }
+            // 5. Verify Khalti
+            elseif ($gateway === 'khalti') {
+                $pidx = $request->query('pidx') ?? ($transaction->gateway_response['pidx'] ?? null);
+                if ($pidx) {
+                    $khalti = new KhaltiService($setting);
+                    $res = $khalti->verify($pidx, $transaction);
+                    $isSuccess = (bool) ($res['success'] ?? false);
+                    $rawResponse = $res['raw'] ?? [];
+                }
             }
         } catch (\Throwable $e) {
             $isSuccess = false;
-            $gatewayResponse = ['error' => $e->getMessage()];
+            $rawResponse = ['error' => $e->getMessage()];
         }
 
+        // 6. Payment Successful
         if ($isSuccess) {
             $transaction->update([
                 'status' => 'completed',
-                'gateway_response' => $gatewayResponse,
+                'gateway_response' => $rawResponse,
             ]);
+
+            // Dispatch webhook via background queue (falls back gracefully if queue worker is not running)
+            try {
+                \App\Jobs\SendMerchantWebhookJob::dispatch($transaction, 'payment.succeeded');
+            } catch (\Throwable $e) {
+                \App\Services\WebhookService::dispatch($transaction, 'payment.succeeded');
+            }
+
             $redirectTarget = $transaction->return_url;
             $delim = str_contains($redirectTarget, '?') ? '&' : '?';
             return redirect()->away("{$redirectTarget}{$delim}status=success&order_id={$transaction->order_id}&trx={$transaction->transaction_uuid}");
         }
 
+        // 7. Payment Failed
         $transaction->update([
             'status' => 'failed',
-            'gateway_response' => $gatewayResponse,
+            'gateway_response' => $rawResponse,
         ]);
+
         $redirectTarget = $transaction->cancel_url;
         $delim = str_contains($redirectTarget, '?') ? '&' : '?';
         return redirect()->away("{$redirectTarget}{$delim}status=failed&order_id={$transaction->order_id}");

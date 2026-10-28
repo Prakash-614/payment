@@ -548,36 +548,83 @@
                 <div class="gateway-pod">
                     <div class="gateway-header">
                         <div class="gw-brand">
-                            <div class="gw-icon" style="background: linear-gradient(135deg, #4d9a37, #60bb46);">ES</div>
+                            <div class="gw-icon" style="background:#60bb46;">eS</div>
                             <div>
                                 <strong style="font-size:16px;">eSewa</strong>
-                                <div style="font-size:12px; color:#94a3b8;">nepalpay/laravel-gateway driver</div>
+                                <div style="font-size:12px; color:#94a3b8;">Nepal's leading digital wallet (NPR)</div>
                             </div>
                         </div>
                         <label class="switch">
                             <input type="checkbox" name="gateways[esewa][is_enabled]" value="1"
-                                {{ ($gatewayData['esewa']['setting']->is_enabled ?? false) ? 'checked' : '' }}>
+                                {{ $gatewayData['esewa']['setting']->is_enabled ? 'checked' : '' }}>
                             <span class="slider"></span>
                         </label>
                     </div>
+
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div>
+                            <label>Active Mode</label>
+                            <select name="gateways[esewa][mode]">
+                                <option value="sandbox"
+                                    {{ $gatewayData['esewa']['setting']->mode === 'sandbox' ? 'selected' : '' }}>
+                                    Sandbox (EPAYTEST)</option>
+                                <option value="live"
+                                    {{ $gatewayData['esewa']['setting']->mode === 'live' ? 'selected' : '' }}>Live
+                                    (Production)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <label>Merchant Code (Live)</label>
+                    <input type="text" name="gateways[esewa][live][merchant_code]"
+                        value="{{ $gatewayData['esewa']['live']['merchant_code'] ?? '' }}"
+                        placeholder="Your live merchant code">
+                    <label>Secret Key (Live)</label>
+                    <input type="password" name="gateways[esewa][live][secret_key]"
+                        value="{{ $gatewayData['esewa']['live']['secret_key'] ?? '' }}"
+                        placeholder="Your live secret key">
                 </div>
 
                 <!-- Khalti -->
                 <div class="gateway-pod">
                     <div class="gateway-header">
                         <div class="gw-brand">
-                            <div class="gw-icon" style="background: linear-gradient(135deg, #482372, #5c2d91);">KH</div>
+                            <div class="gw-icon" style="background:#5c2d91;">Kh</div>
                             <div>
                                 <strong style="font-size:16px;">Khalti</strong>
-                                <div style="font-size:12px; color:#94a3b8;">nepalpay/laravel-gateway driver</div>
+                                <div style="font-size:12px; color:#94a3b8;">Khalti Digital Wallet & Mobile Banking
+                                    (NPR)</div>
                             </div>
                         </div>
                         <label class="switch">
                             <input type="checkbox" name="gateways[khalti][is_enabled]" value="1"
-                                {{ ($gatewayData['khalti']['setting']->is_enabled ?? false) ? 'checked' : '' }}>
+                                {{ $gatewayData['khalti']['setting']->is_enabled ? 'checked' : '' }}>
                             <span class="slider"></span>
                         </label>
                     </div>
+
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                        <div>
+                            <label>Active Mode</label>
+                            <select name="gateways[khalti][mode]">
+                                <option value="sandbox"
+                                    {{ $gatewayData['khalti']['setting']->mode === 'sandbox' ? 'selected' : '' }}>
+                                    Sandbox / Test</option>
+                                <option value="live"
+                                    {{ $gatewayData['khalti']['setting']->mode === 'live' ? 'selected' : '' }}>Live
+                                    (Production)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <label>Live Secret Key</label>
+                    <input type="password" name="gateways[khalti][live][secret_key]"
+                        value="{{ $gatewayData['khalti']['live']['secret_key'] ?? '' }}"
+                        placeholder="Live secret key">
+                    <label>Sandbox Secret Key</label>
+                    <input type="password" name="gateways[khalti][sandbox][secret_key]"
+                        value="{{ $gatewayData['khalti']['sandbox']['secret_key'] ?? '' }}"
+                        placeholder="Test secret key">
                 </div>
 
                 <div style="text-align: right; margin-top: 28px;">
